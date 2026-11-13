@@ -64,6 +64,7 @@ header h1{font-size:28px;flex:1;line-height:1.1}
 .pop .big{font-size:60px}.pop h2{margin:8px 0}.pop p{color:var(--mu);margin-bottom:20px}
 @keyframes pop{from{transform:scale(.7);opacity:0}}
 canvas{position:fixed;inset:0;pointer-events:none;z-index:30}
+button.chip{cursor:pointer;color:var(--tx);font-family:inherit}
 .hid{display:none}.mu{color:var(--mu);font-size:14px}
 h3{margin-bottom:12px;font-size:19px}
 </style>
@@ -73,7 +74,7 @@ h3{margin-bottom:12px;font-size:19px}
 <div class="wrap">
 <header>
   <h1>Hey Yoyo<span class="mu" style="display:block;font:400 15px 'DM Sans';margin-top:4px">One small step at a time.</span></h1>
-  <span class="chip" id="pomoChip">🍅 0 today</span>
+  <span class="chip" id="pomoChip">🍅 0 today</span><button class="chip" id="alarmBtn"></button>
   <span class="chip" id="xpChip">⚡ 0 XP</span>
   <div style="width:100%"><div class="lv"><span id="lvName"></span><span id="lvNext"></span></div><div class="xp"><i id="xpBar"></i></div></div>
 </header>
@@ -108,7 +109,7 @@ h3{margin-bottom:12px;font-size:19px}
 </div>
 
 <div class="tabs" id="tabs"><button data-t="today" class="on">Today</button><button data-t="plan">Plan</button><button data-t="rew">Rewards</button></div>
-<div class="modal" id="modal"><div class="pop"><div class="big" id="mE"></div><h2 id="mT"></h2><p id="mP"></p><button class="btn" id="mB">Nice!</button></div></div>
+<div class="modal" id="modal"><div class="pop"><div class="big" id="mE"></div><h2 id="mT"></h2><p id="mP"></p><button class="btn" id="mB">Got it</button></div></div>
 
 <script>
 const SUBJ={fog:{n:'FOG',e:'🌫️',x:'2026-11-18'},iot:{n:'IoT Boards',e:'🔌',x:'2026-11-20'},wear:{n:'Wearable',e:'⌚',x:'2026-11-25'},city:{n:'Smart Cities',e:'🏙️',x:'2026-11-27'}};
@@ -229,7 +230,37 @@ function size(){cv.width=innerWidth;cv.height=innerHeight}size();addEventListene
 function burst(x,y,n=40){for(let i=0;i<n;i++)ps.push({x,y,vx:(Math.random()-.5)*12,vy:Math.random()*-12-3,c:pick(['#d9673f','#e8b04b','#5b8a6b','#5a7fa8','#e58f7b']),s:Math.random()*7+4,l:80});if(ps.length==n)loop()}
 function loop(){cx.clearRect(0,0,cv.width,cv.height);ps=ps.filter(p=>p.l>0);ps.forEach(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=.35;p.l--;cx.globalAlpha=p.l/80;cx.fillStyle=p.c;cx.fillRect(p.x,p.y,p.s,p.s)});if(ps.length)requestAnimationFrame(loop)}
 
-renderHead();renderToday();renderPlan();renderRew();drawT();
+/* ---------- Schedule alarms ---------- */
+let AC=null,alarmOn=localStorage.getItem('fat-alarm')==='1',fired={};
+try{fired=JSON.parse(localStorage.getItem('fat-fired')||'{}')}catch(e){}
+function ctx(){if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}if(AC&&AC.state=='suspended')AC.resume();return AC}
+function chime(){const c=ctx();if(!c)return;[523,659,784,1047,784,1047].forEach((f,i)=>{const t=c.currentTime+i*.28,o=c.createOscillator(),g=c.createGain();o.type='sine';o.frequency.value=f;o.connect(g);g.connect(c.destination);g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.25,t+.03);g.gain.exponentialRampToValueAtTime(.0001,t+.5);o.start(t);o.stop(t+.55)})}
+// "3:30–6:30 PM", "9:00–12:30", "9:30 PM–12 AM" -> [startMin, endMin]
+function parseRange(r){const m=r.split('–');if(m.length!=2)return null;
+  const re=/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/i,a=m[0].match(re),b=m[1].match(re);if(!a||!b)return null;
+  const mk=(x,mer)=>(((+x[1])%12)+(mer=='PM'?12:0))*60+(+x[2]||0);
+  const hint=x=>(+x[1]>=9&&+x[1]<=11)?'AM':'PM';
+  const bm=(b[3]||hint(b)).toUpperCase(),e0=mk(b,bm);let s;
+  if(a[3])s=mk(a,a[3].toUpperCase());else{s=mk(a,bm);if(s>e0)s=mk(a,'AM')}
+  let e=e0;if(e<=s)e+=1440;return [s,e]}
+function events(){const d=getToday();if(!d||d[0]!==todayISO())return[];
+  const base=new Date(d[0]+'T00:00:00').getTime(),ev=[];
+  d[3].forEach((s,i)=>{const r=parseRange(s[0]);if(!r)return;const nm=SUBJ[s[1]].n+(s[2]?' M'+s[2]:' revision'),nx=d[3][i+1];
+    ev.push({k:d[0]+i+'s',t:base+r[0]*6e4,e:'▶️',h:'Time to start!',p:nm+' · '+s[3]});
+    ev.push({k:d[0]+i+'e',t:base+r[1]*6e4,e:'⏰',h:'Session over',p:nm+' is done. Tick it off and take a break.'+(nx?' Next up: '+SUBJ[nx[1]].n+(nx[2]?' M'+nx[2]:'')+' at '+nx[0].split('–')[0]+'.':' That was the last one today. Well done!')})});
+  return ev}
+function ring(v){chime();try{navigator.vibrate&&navigator.vibrate([200,100,200])}catch(e){}
+  if(window.Notification&&Notification.permission==='granted'){try{new Notification(v.h,{body:v.p})}catch(e){}}
+  $('mE').textContent=v.e;$('mT').textContent=v.h;$('mP').textContent=v.p;$('modal').classList.add('show')}
+function checkAlarms(){if(!alarmOn)return;const n=Date.now();
+  events().forEach(v=>{if(!fired[v.k]&&n>=v.t&&n-v.t<180000){fired[v.k]=1;try{localStorage.setItem('fat-fired',JSON.stringify(fired))}catch(e){}ring(v)}})}
+function drawAlarm(){$('alarmBtn').textContent=alarmOn?'🔔 Alarms on':'🔕 Alarms off'}
+$('alarmBtn').onclick=()=>{alarmOn=!alarmOn;try{localStorage.setItem('fat-alarm',alarmOn?'1':'0')}catch(e){}
+  if(alarmOn){chime();if(window.Notification&&Notification.permission==='default')Notification.requestPermission()}drawAlarm()};
+addEventListener('pointerdown',()=>{if(alarmOn)ctx()});
+setInterval(checkAlarms,1000);
+
+renderHead();renderToday();renderPlan();renderRew();drawT();drawAlarm();
 </script>
 </body>
 </html>
